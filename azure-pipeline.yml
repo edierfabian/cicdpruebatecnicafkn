@@ -1,0 +1,96 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - stg
+
+variables:
+  - ${{ if eq(variables['Build.SourceBranchName'], 'develop') }}:
+      - group: 'pruebatf-dev'
+  - ${{ if eq(variables['Build.SourceBranchName'], 'stg') }}:
+      - group: 'puebatf-Stg'
+  - ${{ if eq(variables['Build.SourceBranchName'], 'main') }}:
+      - group: 'puebatf-Prod'
+
+stages:
+- stage: SetParameters
+  jobs:
+  - job: LoadParameters
+    steps:
+    - script: |
+        echo "Cargando parámetros de despliegue..."
+        echo "##vso[task.setvariable variable=aws_region]$(AWS_REGION)"
+        echo "##vso[task.setvariable variable=aws_access_key_id]$(AWS_ACCESS_KEY_ID)"
+        echo "##vso[task.setvariable variable=aws_secret_access_key]$(AWS_SECRET_ACCESS_KEY)"
+        echo "##vso[task.setvariable variable=ecr_repository]$(ECR_REPOSITORY)"
+      displayName: 'Set Environment and Region Variables'
+
+- stage: BuildAndPush
+  jobs:
+  - job: BuildAndPushImage
+    steps:
+    - script: |
+        echo "Configurando credenciales de AWS..."
+        aws configure set aws_access_key_id $(aws_access_key_id)
+        aws configure set aws_secret_access_key $(aws_secret_access_key)
+        aws configure set region $(aws_region)
+      displayName: 'Configure AWS Credentials'
+
+    - script: |
+        echo "Autenticando en Amazon ECR..."
+        aws ecr get-login-password --region $(aws_region) | docker login --username AWS --password-stdin $(aws_account_id).dkr.ecr.$(aws_region).amazonaws.com
+      displayName: 'Login to Amazon ECR'
+
+    - script: |
+        echo "Construyendo imagen Docker..."
+        docker build -t $(ecr_repository):latest .
+      displayName: 'Build Docker Image'
+
+    - script: |
+        echo "Etiquetando imagen Docker..."
+        docker tag $(ecr_repository):latest $(aws_account_id).dkr.ecr.$(aws_region).amazonaws.com/$(ecr_repository):latest
+      displayName: 'Tag Docker Image'
+
+    - script: |
+        echo "Subiendo imagen a Amazon ECR..."
+        docker push $(aws_account_id).dkr.ecr.$(aws_region).amazonaws.com/$(ecr_repository):latest
+      displayName: 'Push Docker Image to Amazon ECR'
+
+- stage: Deploy  
+  jobs:
+  - job: DeployToAWS
+    steps:
+    - script: |
+        echo "Obteniendo la última versión de la definición de tarea ECS..."
+        TASK_REVISION=$(aws ecs describe-task-definition --task-definition $(task_definition_family) --query "taskDefinition.revision" --output text)
+        echo "Nueva revisión de tarea: $TASK_REVISION"
+
+        echo "Registrando nueva definición de tarea con la nueva imagen..."
+        echo "aws ecs register-task-definition --family $(task_definition_family) --container-definitions '[{\"name\":\"$(container_name)\",\"image\":\"$(aws_account_id).dkr.ecr.$(aws_region).amazonaws.com/$(ecr_repository):latest\",\"essential\":true}]'"
+        aws ecs register-task-definition \
+          --family $(task_definition_family) \
+          --execution-role-arn $(execution_role_arn) \
+          --network-mode awsvpc \
+          --requires-compatibilities FARGATE \
+          --cpu "256" \
+          --memory "512" \
+          --container-definitions "[{\"name\":\"$(container_name)\",\"image\":\"$(aws_account_id).dkr.ecr.$(aws_region).amazonaws.com/$(ecr_repository):latest\",\"essential\":true, \"memory\":512, \"cpu\":256, \"portMappings\":[{\"containerPort\":80,\"hostPort\":80}]}]" \
+          --task-role-arn $(task_role_arn)
+      displayName: 'Register New Task Definition'
+
+    - script: |
+        if [ "$(deployment_strategy)" == "rolling" ]; then
+          echo "Estrategia de despliegue: Rolling Update"
+          aws ecs update-service --cluster $(cluster_name) --service $(service_name) --task-definition $(task_definition_family) --force-new-deployment
+        elif [ "$(deployment_strategy)" == "blue-green" ]; then
+          echo "Estrategia de despliegue: Blue/Green con CodeDeploy"
+          aws deploy create-deployment \
+            --application-name $(service_name)-app \
+            --deployment-group-name $(service_name)-dg \
+            --revision revisionType=AppSpecContent,appSpecContent={"version":"0.0","resources":[{"TargetService":{"Type":"AWS::ECS::Service","Properties":{"TaskDefinition":"$(task_definition_family)","LoadBalancerInfo":{"ContainerName":"$(container_name)","ContainerPort":80}}}}]}
+        else
+          echo "Estrategia de despliegue no reconocida. Usando Rolling Update por defecto."
+          aws ecs update-service --cluster $(cluster_name) --service $(service_name) --task-definition $(task_definition_family) --force-new-deployment --desired-count 1
+        fi
+      displayName: 'Deploy to ECS Fargate with Strategy'
