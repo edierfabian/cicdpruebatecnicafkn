@@ -59,6 +59,9 @@ stages:
         docker push $(aws_account_id).dkr.ecr.$(aws_region).amazonaws.com/$(ecr_repository):latest
       displayName: 'Push Docker Image to Amazon ECR'
 
+    - script: env | grep DEPLOYMENT
+    displayName: "Ver todas las variables relacionadas con DEPLOYMENT"
+
 - stage: Deploy  
   jobs:
   - job: DeployToAWS
