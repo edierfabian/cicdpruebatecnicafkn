@@ -82,7 +82,8 @@ stages:
       displayName: 'Register New Task Definition'
 
     - script: |
-        echo "Estregia de despliegue: $DEPLOYMENT_STRATEGY..."
+        export DEPLOYMENT_STRATEGY=$(DEPLOYMENT_STRATEGY)
+        echo "Estrategia de despliegue: $DEPLOYMENT_STRATEGY"
         if [ "$(deployment_strategy)" == "rolling-update" ]; then
           echo "Estrategia de despliegue: Rolling Update"
           aws ecs update-service --cluster $(cluster_name) --service $(service_name) --task-definition $(task_definition_family) --force-new-deployment
