@@ -24,6 +24,8 @@ stages:
         echo "##vso[task.setvariable variable=aws_access_key_id]$(AWS_ACCESS_KEY_ID)"
         echo "##vso[task.setvariable variable=aws_secret_access_key]$(AWS_SECRET_ACCESS_KEY)"
         echo "##vso[task.setvariable variable=ecr_repository]$(ECR_REPOSITORY)"
+        echo "##vso[task.setvariable variable=DEPLOYMENT_STRATEGY]$(DEPLOYMENT_STRATEGY)"
+
       displayName: 'Set Environment and Region Variables'
 
 - stage: BuildAndPush
