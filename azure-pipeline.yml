@@ -85,12 +85,12 @@ stages:
       displayName: 'Register New Task Definition'
 
     - script: |
-        export DEPLOYMENT_STRATEGY=$(DEPLOYMENT_STRATEGY)
-        echo "Estrategia de despliegue: $DEPLOYMENT_STRATEGY"
-        if [ "$(deployment_strategy)" == "rolling-update" ]; then
+        export DEPLOYMENT_STRATEGY=$(DEPLOYMENT_STRATEG)
+        echo "Estrategia de despliegue: $DEPLOYMENT_STRATEG"
+        if [ "$(DEPLOYMENT_STRATEG)" == "rolling-update" ]; then
           echo "Estrategia de despliegue: Rolling Update"
           aws ecs update-service --cluster $(cluster_name) --service $(service_name) --task-definition $(task_definition_family) --force-new-deployment
-        elif [ "$(deployment_strategy)" == "blue-green" ]; then
+        elif [ "$(DEPLOYMENT_STRATEG)" == "blue-green" ]; then
           echo "Estrategia de despliegue: Blue/Green con CodeDeploy"
           aws deploy create-deployment \
             --application-name $(service_name)-app \
